@@ -1470,7 +1470,6 @@ function saveStorekeeperOperation(payload) {
     const objectName = String(payload.objectName || '').trim();
     const destination = String(payload.destination || '').trim();
     const basis = String(payload.basis || '').trim();
-    const comment = String(payload.comment || '').trim();
     const qty = Number(payload.qty);
 
     const rawPrice = payload.price;
@@ -1662,7 +1661,6 @@ function updateCatalogItem(payload) {
     const category = String(payload.category || '').trim();
     const unit = String(payload.unit || '').trim();
     const active = String(payload.active || 'Да').trim() || 'Да';
-    const comment = String(payload.comment || '').trim();
     const price = Number(payload.price);
 
     if (!article) throw new Error('Не выбран товар.');
@@ -1814,9 +1812,16 @@ function ensureResponsibilitySheets_() {
     current = ss.insertSheet('Ответственные');
   }
   if (current.getLastRow() === 0) {
-    current.getRange(1, 1, 1, 5).setValues([['Артикул', 'Ответственный', 'Назначено', 'Кем', 'Комментарий']]);
-    formatHeader_(current, 1, 1, 1, 5);
+    current.getRange(1, 1, 1, 6).setValues([['Артикул', 'Объект', 'Ответственный', 'Назначено', 'Кем', 'Комментарий']]);
+    formatHeader_(current, 1, 1, 1, 6);
     current.setFrozenRows(1);
+  } else {
+    const secondHeader = String(current.getRange(1, 2).getValue() || '').trim();
+    if (secondHeader === 'Ответственный') {
+      current.insertColumnAfter(1);
+      current.getRange(1, 1, 1, 6).setValues([['Артикул', 'Объект', 'Ответственный', 'Назначено', 'Кем', 'Комментарий']]);
+      formatHeader_(current, 1, 1, 1, 6);
+    }
   }
 
   let history = ss.getSheetByName('История ответственности');
@@ -1831,6 +1836,14 @@ function ensureResponsibilitySheets_() {
     formatHeader_(history, 1, 1, 1, 11);
     history.setFrozenRows(1);
   }
+}
+
+function makeResponsibilityKey_(article, objectName) {
+  return normalizeText_(article) + '||' + normalizeText_(objectName);
+}
+
+function getLegacyResponsibilityKey_(article) {
+  return makeResponsibilityKey_(article, '');
 }
 
 function getEmployees_() {
@@ -1892,18 +1905,20 @@ function getCurrentResponsibilityMap_() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return {};
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
   const map = {};
   data.forEach(function (r) {
-    const article = String(r[0] || '').trim().toLowerCase();
-    const employee = String(r[1] || '').trim();
+    const article = String(r[0] || '').trim();
+    const objectName = String(r[1] || '').trim();
+    const employee = String(r[2] || '').trim();
     if (!article || !employee) return;
-    map[article] = {
-      article: String(r[0] || '').trim(),
+    map[makeResponsibilityKey_(article, objectName)] = {
+      article: article,
+      objectName: objectName,
       employee: employee,
-      assignedAt: formatDateTimeRu_(r[2]),
-      assignedBy: String(r[3] || '').trim(),
-      comment: String(r[4] || '').trim()
+      assignedAt: formatDateTimeRu_(r[3]),
+      assignedBy: String(r[4] || '').trim(),
+      comment: String(r[5] || '').trim()
     };
   });
   return map;
@@ -1995,7 +2010,7 @@ function getCurrentResponsibilityRows_(filters) {
       return Number(item.qty) > 0;
     })
     .map(function (item) {
-      const resp = respMap[String(item.article || '').trim().toLowerCase()] || null;
+      const resp = respMap[makeResponsibilityKey_(item.article, item.objectName)] || respMap[getLegacyResponsibilityKey_(item.article)] || null;
       return {
         objectName: String(item.objectName || '').trim(),
         article: String(item.article || '').trim(),
@@ -2041,106 +2056,132 @@ function getAssignedInstrumentRows(filters) {
   return getCurrentResponsibilityRows_(Object.assign({}, filters || {}, { onlyAssigned: true }));
 }
 
-function saveResponsibilityAssignments(payload) {
+function applyResponsibilityAssignments_(payload) {
   ensureResponsibilitySheets_();
 
+  const employee = String(payload.employee || '').trim();
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const comment = String(payload.comment || '').trim();
+  const user = String(payload.user || Session.getActiveUser().getEmail() || '').trim();
+  const assignedAt = payload.assignedAt instanceof Date ? payload.assignedAt : new Date();
+
+  if (!employee) throw new Error('Выбери сотрудника.');
+  if (!rows.length) throw new Error('Не выбраны позиции для назначения.');
+
+  const employees = getEmployees_().map(normalizeText_);
+  if (employees.indexOf(normalizeText_(employee)) === -1) {
+    throw new Error('Сотрудник не найден в справочнике.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Ответственные');
+  const currentMap = getCurrentResponsibilityMap_();
+
+  const rowsToAppend = [];
+  const historyItems = [];
+
+  rows.forEach(function (row) {
+    const article = String(row.article || '').trim();
+    const objectName = String(row.objectName || '').trim();
+    if (!article) return;
+    if (!objectName) throw new Error('Для назначения не указан объект у товара ' + article + '.');
+    const key = makeResponsibilityKey_(article, objectName);
+    if (currentMap[key] && currentMap[key].employee) {
+      throw new Error('У товара ' + article + ' на объекте "' + objectName + '" уже назначен ответственный.');
+    }
+    rowsToAppend.push([article, objectName, employee, assignedAt, user, comment]);
+    historyItems.push(row);
+  });
+
+  if (!rowsToAppend.length) throw new Error('Нет строк для назначения.');
+  sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 6).setValues(rowsToAppend);
+  appendResponsibilityHistory_(historyItems, 'Назначение', '', employee, user, comment);
+  return rowsToAppend.length;
+}
+
+function saveResponsibilityAssignments(payload) {
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
 
   try {
-    const employee = String(payload.employee || '').trim();
-    const rows = Array.isArray(payload.rows) ? payload.rows : [];
-    const comment = String(payload.comment || '').trim();
-    if (!employee) throw new Error('Выбери сотрудника.');
-    if (!rows.length) throw new Error('Не выбраны позиции для назначения.');
-
-    const employees = getEmployees_().map(normalizeText_);
-    if (employees.indexOf(normalizeText_(employee)) === -1) {
-      throw new Error('Сотрудник не найден в справочнике.');
-    }
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Ответственные');
-    const user = Session.getActiveUser().getEmail() || '';
-    const currentMap = getCurrentResponsibilityMap_();
-
-    const rowsToAppend = [];
-    const historyItems = [];
-
-    rows.forEach(function (row) {
-      const article = String(row.article || '').trim();
-      if (!article) return;
-      const norm = article.toLowerCase();
-      if (currentMap[norm] && currentMap[norm].employee) {
-        throw new Error('У товара ' + article + ' уже назначен ответственный.');
-      }
-      rowsToAppend.push([article, employee, new Date(), user, comment]);
-      historyItems.push(row);
-    });
-
-    if (!rowsToAppend.length) throw new Error('Нет строк для назначения.');
-    sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 5).setValues(rowsToAppend);
-    appendResponsibilityHistory_(historyItems, 'Назначение', '', employee, user, comment);
+    const count = applyResponsibilityAssignments_(payload || {});
     refreshAssigned();
-    return 'Назначено позиций: ' + rowsToAppend.length;
+    return 'Назначено позиций: ' + count;
   } finally {
     lock.releaseLock();
   }
 }
 
-function saveResponsibilityReassignments(payload) {
+function applyResponsibilityReassignments_(payload) {
   ensureResponsibilitySheets_();
 
+  const employee = String(payload.employee || '').trim();
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const comment = String(payload.comment || '').trim();
+  const user = String(payload.user || Session.getActiveUser().getEmail() || '').trim();
+  const assignedAt = payload.assignedAt instanceof Date ? payload.assignedAt : new Date();
+
+  if (!employee) throw new Error('Выбери нового ответственного.');
+  if (!rows.length) throw new Error('Не выбраны позиции для переназначения.');
+
+  const employees = getEmployees_().map(normalizeText_);
+  if (employees.indexOf(normalizeText_(employee)) === -1) {
+    throw new Error('Сотрудник не найден в справочнике.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Ответственные');
+  const currentMap = getCurrentResponsibilityMap_();
+  const data = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues() : [];
+  const historyItems = [];
+
+  rows.forEach(function (row) {
+    const article = String(row.article || '').trim();
+    const objectName = String(row.objectName || '').trim();
+    const key = makeResponsibilityKey_(article, objectName);
+    const current = currentMap[key] || currentMap[getLegacyResponsibilityKey_(article)];
+    if (!current || !current.employee) {
+      throw new Error('У товара ' + article + ' на объекте "' + objectName + '" нет текущего ответственного.');
+    }
+
+    let targetRow = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (makeResponsibilityKey_(data[i][0], data[i][1]) === key ||
+          (makeResponsibilityKey_(data[i][0], data[i][1]) === getLegacyResponsibilityKey_(article) && !String(data[i][1] || '').trim())) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+    if (!targetRow) throw new Error('Не найдена строка ответственного для ' + article + ' на объекте "' + objectName + '".');
+
+    sheet.getRange(targetRow, 2, 1, 5).setValues([[objectName, employee, assignedAt, user, comment]]);
+    historyItems.push({
+      article: article,
+      name: row.name,
+      type: row.type,
+      category: row.category,
+      objectName: objectName,
+      qty: row.qty,
+      oldEmployee: current.employee,
+      newEmployee: employee
+    });
+  });
+
+  historyItems.forEach(function (item) {
+    appendResponsibilityHistory_([item], 'Переназначение', item.oldEmployee, item.newEmployee, user, comment);
+  });
+
+  return historyItems.length;
+}
+
+function saveResponsibilityReassignments(payload) {
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
 
   try {
-    const employee = String(payload.employee || '').trim();
-    const rows = Array.isArray(payload.rows) ? payload.rows : [];
-    const comment = String(payload.comment || '').trim();
-    if (!employee) throw new Error('Выбери нового ответственного.');
-    if (!rows.length) throw new Error('Не выбраны позиции для переназначения.');
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Ответственные');
-    const currentMap = getCurrentResponsibilityMap_();
-    const user = Session.getActiveUser().getEmail() || '';
-
-    const data = sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues() : [];
-    const historyItems = [];
-
-    rows.forEach(function (row) {
-      const article = String(row.article || '').trim();
-      const norm = article.toLowerCase();
-      const current = currentMap[norm];
-      if (!current || !current.employee) {
-        throw new Error('У товара ' + article + ' нет текущего ответственного.');
-      }
-
-      let targetRow = 0;
-      for (var i = 0; i < data.length; i++) {
-        if (String(data[i][0] || '').trim().toLowerCase() === norm) {
-          targetRow = i + 2;
-          break;
-        }
-      }
-      if (!targetRow) throw new Error('Не найдена строка ответственного для ' + article);
-
-      sheet.getRange(targetRow, 2, 1, 4).setValues([[employee, new Date(), user, comment]]);
-      historyItems.push(Object.assign({}, row, { oldEmployee: current.employee }));
-    });
-
-    appendResponsibilityHistory_(
-      historyItems.map(function (r) { return r; }),
-      'Переназначение',
-      '',
-      employee,
-      user,
-      comment
-    );
-
+    const count = applyResponsibilityReassignments_(payload || {});
     refreshAssigned();
-    return 'Переназначено позиций: ' + rows.length;
+    return 'Переназначено позиций: ' + count;
   } finally {
     lock.releaseLock();
   }
@@ -2161,7 +2202,6 @@ function saveStorekeeperMassTransfer(payload) {
     const sourceObject = String(payload.sourceObject || '').trim();
     const destinationObject = String(payload.destinationObject || '').trim();
     const basis = String(payload.basis || '').trim();
-    const comment = String(payload.comment || '').trim();
     const newEmployee = String(payload.newEmployee || '').trim();
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
 
@@ -2207,7 +2247,7 @@ function saveStorekeeperMassTransfer(payload) {
         destinationObject,
         basis || 'Массовое перемещение',
         '',
-        comment || 'Дашборд кладовщика / массовое перемещение',
+        'Дашборд кладовщика / массовое перемещение',
         user,
         now,
         ''
@@ -2231,7 +2271,7 @@ function saveStorekeeperMassTransfer(payload) {
       const reassignRows = [];
 
       reassignedItems.forEach(function (item) {
-        const current = currentMap[String(item.article || '').trim().toLowerCase()];
+        const current = currentMap[makeResponsibilityKey_(item.article, item.objectName)] || currentMap[getLegacyResponsibilityKey_(item.article)];
         if (current && current.employee) {
           reassignRows.push(item);
         } else {
@@ -2240,10 +2280,22 @@ function saveStorekeeperMassTransfer(payload) {
       });
 
       if (assignRows.length) {
-        saveResponsibilityAssignments({ employee: newEmployee, rows: assignRows, comment: 'Назначено при массовом перемещении' });
+        applyResponsibilityAssignments_({
+          employee: newEmployee,
+          rows: assignRows,
+          comment: 'Назначено при массовом перемещении',
+          user: user,
+          assignedAt: now
+        });
       }
       if (reassignRows.length) {
-        saveResponsibilityReassignments({ employee: newEmployee, rows: reassignRows, comment: 'Переназначено при массовом перемещении' });
+        applyResponsibilityReassignments_({
+          employee: newEmployee,
+          rows: reassignRows,
+          comment: 'Переназначено при массовом перемещении',
+          user: user,
+          assignedAt: now
+        });
       }
     }
 

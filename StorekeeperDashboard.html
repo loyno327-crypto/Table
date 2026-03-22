@@ -216,10 +216,10 @@
           <div class="field"><label>С объекта</label><select id="massMoveSource" onchange="renderMassMoveAvailable()"></select></div>
           <div class="field"><label>На объект</label><select id="massMoveDestination"></select></div>
           <div class="field"><label>Фильтр по типу</label><select id="massMoveType" onchange="renderMassMoveAvailable()"></select></div>
+          <div class="field"><label>Ответственный сейчас</label><select id="massMoveCurrentEmployee" onchange="renderMassMoveAvailable()"></select></div>
           <div class="field"><label>Поиск</label><input id="massMoveSearch" type="text" oninput="renderMassMoveAvailable()" placeholder="Артикул или название"></div>
           <div class="field"><label>Новый ответственный</label><select id="massMoveEmployee"></select></div>
-          <div class="field"><label>Основание</label><input id="massMoveBasis" type="text" placeholder="Например: перемещение партии"></div>
-          <div class="field" style="grid-column: span 2;"><label>Комментарий</label><input id="massMoveComment" type="text" placeholder="Необязательно"></div>
+          <div class="field" style="grid-column: span 2;"><label>Основание</label><input id="massMoveBasis" type="text" placeholder="Например: перемещение партии"></div>
         </div>
 
         <div class="split" style="margin-top:12px;">
@@ -317,6 +317,7 @@
             <div class="field"><label>Поиск</label><input id="respReassignSearch" type="text" oninput="renderReassignAvailableTable()"></div>
             <div class="field"><label>Объект</label><select id="respReassignObject" onchange="renderReassignAvailableTable()"></select></div>
             <div class="field"><label>Тип</label><select id="respReassignType" onchange="renderReassignAvailableTable()"></select></div>
+            <div class="field"><label>Старый ответственный</label><select id="respReassignCurrentEmployee" onchange="renderReassignAvailableTable()"></select></div>
             <div class="field"><label>Новый ответственный</label><select id="respReassignEmployee"></select></div>
           </div>
           <div class="split">
@@ -646,6 +647,7 @@ function refreshAllStorekeeperData() {
       fillSelect('massMoveSource', 'Выбери объект', initData.objects);
       fillSelect('massMoveDestination', 'Выбери объект', initData.objects);
       fillSelect('massMoveType', 'Все типы', initData.types);
+      fillSelect('massMoveCurrentEmployee', 'Все ответственные', initData.employees);
       fillSelect('massMoveEmployee', 'Оставить прежнего', [''].concat(initData.employees || []));
       fillSelect('respCurrentObject', 'Все объекты', initData.objects);
       fillSelect('respCurrentType', 'Все типы', initData.types);
@@ -655,6 +657,7 @@ function refreshAllStorekeeperData() {
       fillSelect('respAssignEmployee', 'Выбери сотрудника', initData.employees);
       fillSelect('respReassignObject', 'Все объекты', initData.objects);
       fillSelect('respReassignType', 'Все типы', initData.types);
+      fillSelect('respReassignCurrentEmployee', 'Все ответственные', initData.employees);
       fillSelect('respReassignEmployee', 'Выбери нового ответственного', initData.employees);
       fillSelect('dirDeleteObject', 'Выбери объект', initData.objects);
       fillSelect('dirDeleteEmployee', 'Выбери сотрудника', initData.employees);
@@ -968,8 +971,16 @@ function submitResponsibilityAssignment() {
     rows: respAssignSelected
   });
 }
+function getReassignFilters() {
+  return {
+    query: document.getElementById('respReassignSearch').value,
+    objectName: document.getElementById('respReassignObject').value,
+    typeName: document.getElementById('respReassignType').value,
+    employee: document.getElementById('respReassignCurrentEmployee').value
+  };
+}
 function renderReassignAvailableTable() {
-  const rows = currentRowsFiltered(getRespFilters('respReassign'), 'assigned');
+  const rows = currentRowsFiltered(getReassignFilters(), 'assigned');
   const body = document.getElementById('respReassignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respReassignSelected.find(x => rowIdentity(x) === rowIdentity(r));
@@ -1002,6 +1013,7 @@ function renderMassMoveAvailable() {
   const filters = {
     objectName: document.getElementById('massMoveSource').value,
     typeName: document.getElementById('massMoveType').value,
+    employee: document.getElementById('massMoveCurrentEmployee').value,
     query: document.getElementById('massMoveSearch').value
   };
 
@@ -1013,6 +1025,10 @@ function renderMassMoveAvailable() {
   let rows = (initData.balances || []).filter(r => Number(r.qty) > 0);
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
+  if (filters.employee) rows = rows.filter(r => {
+    const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
+    return current && current.employee === filters.employee;
+  });
 
   const q = normalizeText(filters.query || '');
   if (q) rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName].join(' ')).indexOf(q) !== -1);
@@ -1062,7 +1078,6 @@ function submitMassMove() {
     sourceObject: document.getElementById('massMoveSource').value,
     destinationObject: document.getElementById('massMoveDestination').value,
     basis: document.getElementById('massMoveBasis').value.trim(),
-    comment: document.getElementById('massMoveComment').value.trim(),
     newEmployee: document.getElementById('massMoveEmployee').value,
     rows: massMoveSelected.map(r => ({ article:r.article, qty:Number(r.qtyToMove || r.qty), objectName:r.objectName, name:r.name, type:r.type, category:r.category }))
   });
