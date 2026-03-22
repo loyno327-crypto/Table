@@ -910,29 +910,26 @@ function getCurrentResponsibilityLookup() {
     byArticle: legacyMap
   };
 }
+function getResponsibilityForRow(row, lookup) {
+  const responsibilityLookup = lookup || getCurrentResponsibilityLookup();
+  return responsibilityLookup.byObject[normalizeText((row.article || '') + '||' + (row.objectName || ''))] ||
+    responsibilityLookup.byArticle[normalizeText(row.article || '')] ||
+    null;
+}
+function getAssignedRowsFiltered(filters) {
+  let rows = (initData.currentResponsibilities || []).map(function (r) {
+    return {
+      objectName: r.objectName || '',
+      article: r.article || '',
+      name: r.name || '',
+      type: r.type || '',
+      category: r.category || '',
+      qty: Number(r.qty) || 0,
+      unit: r.unit || '',
+      employee: r.employee || ''
+    };
+  });
 
-function currentRowsFiltered(filters, mode) {
-  const responsibilityLookup = getCurrentResponsibilityLookup();
-
-  let rows = (initData.balances || [])
-    .filter(function (r) { return Number(r.qty) > 0; })
-    .map(function (r) {
-      const current = responsibilityLookup.byObject[normalizeText((r.article || '') + '||' + (r.objectName || ''))] ||
-        responsibilityLookup.byArticle[normalizeText(r.article || '')];
-      return {
-        objectName: r.objectName,
-        article: r.article,
-        name: r.name,
-        type: r.type,
-        category: r.category,
-        qty: Number(r.qty) || 0,
-        unit: r.unit || '',
-        employee: current ? current.employee : ''
-      };
-    });
-
-  if (mode === 'available') rows = rows.filter(r => !r.employee);
-  if (mode === 'assigned') rows = rows.filter(r => !!r.employee);
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
   if (filters.employee) rows = rows.filter(r => r.employee === filters.employee);
@@ -945,9 +942,40 @@ function currentRowsFiltered(filters, mode) {
   rows.sort((a,b)=> String(a.objectName).localeCompare(String(b.objectName),'ru') || String(a.name).localeCompare(String(b.name),'ru'));
   return rows;
 }
+function getAvailableRowsFiltered(filters) {
+  const responsibilityLookup = getCurrentResponsibilityLookup();
+
+  let rows = (initData.balances || [])
+    .filter(function (r) { return Number(r.qty) > 0; })
+    .map(function (r) {
+      const current = getResponsibilityForRow(r, responsibilityLookup);
+      return {
+        objectName: r.objectName || '',
+        article: r.article || '',
+        name: r.name || '',
+        type: r.type || '',
+        category: r.category || '',
+        qty: Number(r.qty) || 0,
+        unit: r.unit || '',
+        employee: current ? current.employee : ''
+      };
+    })
+    .filter(function (r) { return !r.employee; });
+
+  if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
+  if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
+
+  const q = normalizeText(filters.query || '');
+  if (q) {
+    rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName].join(' ')).indexOf(q) !== -1);
+  }
+
+  rows.sort((a,b)=> String(a.objectName).localeCompare(String(b.objectName),'ru') || String(a.name).localeCompare(String(b.name),'ru'));
+  return rows;
+}
 function renderCurrentResponsibilityTable() {
   const body = document.getElementById('respCurrentBody');
-  const rows = currentRowsFiltered(getRespFilters('respCurrent'), 'assigned');
+  const rows = getAssignedRowsFiltered(getRespFilters('respCurrent'));
   body.innerHTML = rows.length ? rows.map(r => '<tr><td>' + escapeHtml(r.employee) + '</td><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.article) + '</td><td>' + escapeHtml(r.name) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>').join('') : '<tr><td colspan="7" class="muted">Нет данных</td></tr>';
 }
 function rowIdentity(row){ return normalizeText(row.objectName) + '||' + normalizeText(row.article); }
@@ -959,11 +987,11 @@ function toggleSelected(listName, row) {
   else list.push(Object.assign({}, row, { qtyToMove: row.qty }));
 }
 function renderAssignAvailableTable() {
-  const rows = currentRowsFiltered(getRespFilters('respAssign'), 'available');
+  const rows = getAvailableRowsFiltered(getRespFilters('respAssign'));
   const body = document.getElementById('respAssignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respAssignSelected.find(x => rowIdentity(x) === rowIdentity(r));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectAssignRow(' + JSON.stringify(r).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>';
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectAssignRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td></tr>`;
   }).join('') : '<tr><td colspan="5" class="muted">Нет данных</td></tr>';
   renderAssignSelectedTable();
 }
@@ -995,11 +1023,11 @@ function getReassignFilters() {
   };
 }
 function renderReassignAvailableTable() {
-  const rows = currentRowsFiltered(getReassignFilters(), 'assigned');
+  const rows = getAssignedRowsFiltered(getReassignFilters());
   const body = document.getElementById('respReassignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respReassignSelected.find(x => rowIdentity(x) === rowIdentity(r));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectReassignRow(' + JSON.stringify(r).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.employee) + '</td><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>';
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectReassignRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.employee)}</td><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td></tr>`;
   }).join('') : '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
   renderReassignSelectedTable();
 }
@@ -1034,33 +1062,33 @@ function renderMassMoveAvailable() {
 
   const responsibilityLookup = getCurrentResponsibilityLookup();
 
-  let rows = (initData.balances || []).filter(r => Number(r.qty) > 0);
+  let rows = (initData.balances || [])
+    .filter(r => Number(r.qty) > 0)
+    .map(function (r) {
+      const current = getResponsibilityForRow(r, responsibilityLookup);
+      return {
+        objectName: r.objectName || '',
+        article: r.article || '',
+        name: r.name || '',
+        type: r.type || '',
+        category: r.category || '',
+        qty: Number(r.qty) || 0,
+        employee: current ? current.employee : ''
+      };
+    });
+
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
-  if (filters.employee) rows = rows.filter(r => {
-    const current = responsibilityLookup.byObject[normalizeText((r.article || '') + '||' + (r.objectName || ''))] ||
-      responsibilityLookup.byArticle[normalizeText(r.article || '')];
-    return current && current.employee === filters.employee;
-  });
+  if (filters.employee) rows = rows.filter(r => r.employee === filters.employee);
 
   const q = normalizeText(filters.query || '');
-  if (q) rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName].join(' ')).indexOf(q) !== -1);
+  if (q) rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName, r.employee].join(' ')).indexOf(q) !== -1);
 
   rows.sort((a,b)=> String(a.name).localeCompare(String(b.name),'ru'));
 
   body.innerHTML = rows.length ? rows.map(r => {
-    const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
-    const row = {
-      objectName:r.objectName,
-      article:r.article,
-      name:r.name,
-      type:r.type,
-      category:r.category,
-      qty:Number(r.qty)||0,
-      employee: current ? current.employee : ''
-    };
-    const sel = massMoveSelected.find(x => rowIdentity(x) === rowIdentity(row));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectMassMoveRow(' + JSON.stringify(row).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td><td>' + escapeHtml(current ? current.employee : '—') + '</td></tr>';
+    const sel = massMoveSelected.find(x => rowIdentity(x) === rowIdentity(r));
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectMassMoveRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td><td>${escapeHtml(r.employee || '—')}</td></tr>`;
   }).join('') : '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
 
   renderMassMoveSelected();
