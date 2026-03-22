@@ -317,6 +317,7 @@
             <div class="field"><label>Поиск</label><input id="respReassignSearch" type="text" oninput="renderReassignAvailableTable()"></div>
             <div class="field"><label>Объект</label><select id="respReassignObject" onchange="renderReassignAvailableTable()"></select></div>
             <div class="field"><label>Тип</label><select id="respReassignType" onchange="renderReassignAvailableTable()"></select></div>
+            <div class="field"><label>Старый ответственный</label><select id="respReassignCurrentEmployee" onchange="renderReassignAvailableTable()"></select></div>
             <div class="field"><label>Новый ответственный</label><select id="respReassignEmployee"></select></div>
           </div>
           <div class="split">
@@ -655,6 +656,7 @@ function refreshAllStorekeeperData() {
       fillSelect('respAssignEmployee', 'Выбери сотрудника', initData.employees);
       fillSelect('respReassignObject', 'Все объекты', initData.objects);
       fillSelect('respReassignType', 'Все типы', initData.types);
+      fillSelect('respReassignCurrentEmployee', 'Все ответственные', initData.employees);
       fillSelect('respReassignEmployee', 'Выбери нового ответственного', initData.employees);
       fillSelect('dirDeleteObject', 'Выбери объект', initData.objects);
       fillSelect('dirDeleteEmployee', 'Выбери сотрудника', initData.employees);
@@ -968,8 +970,16 @@ function submitResponsibilityAssignment() {
     rows: respAssignSelected
   });
 }
+function getReassignFilters() {
+  return {
+    query: document.getElementById('respReassignSearch').value,
+    objectName: document.getElementById('respReassignObject').value,
+    typeName: document.getElementById('respReassignType').value,
+    employee: document.getElementById('respReassignCurrentEmployee').value
+  };
+}
 function renderReassignAvailableTable() {
-  const rows = currentRowsFiltered(getRespFilters('respReassign'), 'assigned');
+  const rows = currentRowsFiltered(getReassignFilters(), 'assigned');
   const body = document.getElementById('respReassignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respReassignSelected.find(x => rowIdentity(x) === rowIdentity(r));
