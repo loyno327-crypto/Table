@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f7fb;
+      color: #222;
+    }
+
+    .title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .sub {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 16px;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      text-align: left;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      transition: 0.15s ease;
+    }
+
+    .btn:hover {
+      background: #eef4ff;
+    }
+
+    .btn-primary {
+      background: #2f6fed;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #2459bf;
+    }
+
+    .muted {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 12px;
+      line-height: 1.4;
+    }
+
+    .status {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #188038;
+      font-weight: 700;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="title">Меню</div>
+  <div class="sub">Открывай нужные разделы сразу после запуска таблицы</div>
+
+  <button class="btn btn-primary" onclick="runAction('openQuickStorekeeperDashboard', 'Открываем дашборд кладовщика...')">
+    Дашборд кладовщика
+  </button>
+
+  <button class="btn" onclick="runAction('openQuickInventory', 'Открываем инвентаризацию...')">
+    Инвентаризация
+  </button>
+
+  <button class="btn" onclick="runAction('openQuickSearch', 'Открываем поиск товара...')">
+    Поиск товара
+  </button>
+
+  <button class="btn" onclick="runAction('openQuickManagementDashboard', 'Открываем дашборд руководителя...')">
+    Дашборд руководителя
+  </button>
+
+  <button class="btn" onclick="runAction('openQuickRefreshAll', 'Обновляем данные...')">
+    Обновить всё
+  </button>
+
+  <div id="status" class="status"></div>
+
+  <div class="muted">
+    Панель открывается автоматически при запуске файла.
+  </div>
+
+  <script>
+    function runAction(fnName, statusText) {
+      document.getElementById('status').textContent = statusText;
+
+      google.script.run
+        .withSuccessHandler(function () {
+          document.getElementById('status').textContent = '';
+        })
+        .withFailureHandler(function (err) {
+          document.getElementById('status').textContent =
+            'Ошибка: ' + (err.message || err);
+        })[fnName]();
+    }
+  </script>
+</body>
+</html>
