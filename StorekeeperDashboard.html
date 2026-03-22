@@ -894,16 +894,31 @@ function getRespFilters(prefix) {
     employee: document.getElementById(prefix + 'Employee') ? document.getElementById(prefix + 'Employee').value : ''
   };
 }
-function currentRowsFiltered(filters, mode) {
+function getCurrentResponsibilityLookup() {
   const respMap = {};
+  const legacyMap = {};
+
   (initData.currentResponsibilities || []).forEach(function (x) {
-    respMap[normalizeText((x.article || '') + '||' + (x.objectName || ''))] = x;
+    const articleKey = normalizeText(x.article || '');
+    const objectKey = normalizeText((x.article || '') + '||' + (x.objectName || ''));
+    respMap[objectKey] = x;
+    if (!legacyMap[articleKey]) legacyMap[articleKey] = x;
   });
+
+  return {
+    byObject: respMap,
+    byArticle: legacyMap
+  };
+}
+
+function currentRowsFiltered(filters, mode) {
+  const responsibilityLookup = getCurrentResponsibilityLookup();
 
   let rows = (initData.balances || [])
     .filter(function (r) { return Number(r.qty) > 0; })
     .map(function (r) {
-      const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
+      const current = responsibilityLookup.byObject[normalizeText((r.article || '') + '||' + (r.objectName || ''))] ||
+        responsibilityLookup.byArticle[normalizeText(r.article || '')];
       return {
         objectName: r.objectName,
         article: r.article,
@@ -1017,16 +1032,14 @@ function renderMassMoveAvailable() {
     query: document.getElementById('massMoveSearch').value
   };
 
-  const respMap = {};
-  (initData.currentResponsibilities || []).forEach(function (x) {
-    respMap[normalizeText((x.article || '') + '||' + (x.objectName || ''))] = x;
-  });
+  const responsibilityLookup = getCurrentResponsibilityLookup();
 
   let rows = (initData.balances || []).filter(r => Number(r.qty) > 0);
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
   if (filters.employee) rows = rows.filter(r => {
-    const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
+    const current = responsibilityLookup.byObject[normalizeText((r.article || '') + '||' + (r.objectName || ''))] ||
+      responsibilityLookup.byArticle[normalizeText(r.article || '')];
     return current && current.employee === filters.employee;
   });
 
