@@ -957,6 +957,10 @@
     }
 
     function buildInventoryTransferReport(objectName, transferRows) {
+      const model = {
+        hashtag: '',
+        groups: []
+      };
       const grouped = {};
       (transferRows || []).forEach(function (row) {
         const type = String(row.type || 'Без типа').trim() || 'Без типа';
@@ -965,7 +969,8 @@
         grouped[type].push({
           category: String(row.category || 'Без категории').trim() || 'Без категории',
           name: String(row.name || '').trim(),
-          qty: Number(row.changeQty) || 0
+          qty: Number(row.changeQty) || 0,
+          unit: String(row.unit || '').trim()
         });
       });
 
@@ -973,46 +978,58 @@
       const destinationLetter = transferRows.length
         ? getInventoryMoveObjectLetter(transferRows[0].destination)
         : 'О';
-
-      const lines = [
-        '1. #Перемещение' + sourceLetter + destinationLetter,
-        '2.',
-        '3.',
-        '4.'
-      ];
+      model.hashtag = '#Перемещение' + sourceLetter + destinationLetter;
 
       const typeNames = Object.keys(grouped).sort(function (a, b) {
         return a.localeCompare(b, 'ru');
       });
 
       typeNames.forEach(function (typeName) {
-        lines.push(typeName + ':');
-
-        grouped[typeName]
+        const items = grouped[typeName]
           .sort(function (a, b) {
             return a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru');
           })
-          .forEach(function (item) {
-            lines.push(' ' + item.category + ' | "' + item.name + '" - "' + item.qty + '"');
+          .map(function (item) {
+            return {
+              category: item.category,
+              name: item.name,
+              qty: String(item.qty),
+              unit: item.unit
+            };
           });
+
+        model.groups.push({
+          type: typeName,
+          items: items
+        });
       });
 
-      return lines.join('\n');
+      return model;
     }
 
-    function copyInventoryTransferReport() {
-      const el = document.getElementById('inventoryReportText');
-      if (!el) return;
+    function renderInventoryTransferBlocks(model) {
+      const groupsHtml = (model.groups || []).map(function (group) {
+        const itemsHtml = (group.items || []).map(function (item) {
+          return '<div style="display:grid; grid-template-columns: 200px 1fr 180px; gap:8px; margin-top:6px;">' +
+            '<div style="background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px;">' + escapeHtml(item.category) + '</div>' +
+            '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px;">' + escapeHtml(item.name) + '</div>' +
+            '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; text-align:right;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+          '</div>';
+        }).join('');
 
-      el.focus();
-      el.select();
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(el.value).catch(function () {
-          document.execCommand('copy');
-        });
-        return;
-      }
-      document.execCommand('copy');
+        return '<div style="margin-top:10px;">' +
+          '<div style="font-weight:700; margin-bottom:4px;">' + escapeHtml(group.type) + '</div>' +
+          itemsHtml +
+        '</div>';
+      }).join('');
+
+      return '<div style="margin-top:10px; border:1px solid #d8e0ef; border-radius:10px; padding:12px; background:#f8fbff;">' +
+        '<div style="font-weight:700;">1. ' + escapeHtml(model.hashtag || '') + '</div>' +
+        '<div style="margin-top:6px;">2.</div>' +
+        '<div style="margin-top:6px;">3.</div>' +
+        '<div style="margin-top:10px; font-weight:700;">4.</div>' +
+        groupsHtml +
+      '</div>';
     }
 
     function submitInventory() {
@@ -1056,9 +1073,8 @@
           const report = buildInventoryTransferReport(objectName, transferRows);
           document.getElementById('inventoryReport').innerHTML =
             '<div class="ok">' + escapeHtml(msg) + '</div>' +
-            '<div style="margin-top:10px; font-weight:600;">Отчет по перемещению для мессенджера</div>' +
-            '<textarea id="inventoryReportText" readonly style="width:100%; min-height:220px; margin-top:8px;">' + escapeHtml(report) + '</textarea>' +
-            '<div style="margin-top:8px;"><button class="btn btn-secondary" onclick="copyInventoryTransferReport()">Копировать отчет</button></div>';
+            '<div style="margin-top:10px; font-weight:600;">Отчет по перемещению для скриншота</div>' +
+            renderInventoryTransferBlocks(report);
         })
         .withFailureHandler(function (err) {
           alert(err.message || err);
