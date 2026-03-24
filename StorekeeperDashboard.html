@@ -1163,24 +1163,20 @@ function buildMassMoveReport(rows, sourceObject, destinationObject) {
 function renderTransferReportBlocks(model) {
   const groupsHtml = (model.groups || []).map(function (group) {
     const itemsHtml = (group.items || []).map(function (item) {
-      return '<div style="display:grid; grid-template-columns: 200px 1fr 180px; gap:8px; margin-top:6px;">' +
-        '<div style="background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px;">' + escapeHtml(item.category) + '</div>' +
-        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px;">' + escapeHtml(item.name) + '</div>' +
-        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; text-align:right;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+      return '<div style="display:grid; grid-template-columns: 170px 1fr 95px; gap:6px; margin-top:6px;">' +
+        '<div style="background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.category) + '</div>' +
+        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.name) + '</div>' +
+        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; text-align:left; white-space:nowrap; font-size:13px; line-height:1.25;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
       '</div>';
     }).join('');
 
     return '<div style="margin-top:10px;">' +
-      '<div style="font-weight:700; margin-bottom:4px;">' + escapeHtml(group.type) + '</div>' +
+      '<div style="font-weight:700; margin-bottom:4px; font-size:20px; line-height:1.2;">' + escapeHtml(group.type) + '</div>' +
       itemsHtml +
     '</div>';
   }).join('');
 
   return '<div style="margin-top:10px; border:1px solid #d8e0ef; border-radius:10px; padding:12px; background:#f8fbff;">' +
-    '<div style="font-weight:700;">1. ' + escapeHtml(model.hashtag || '') + '</div>' +
-    '<div style="margin-top:6px;">2.</div>' +
-    '<div style="margin-top:6px;">3.</div>' +
-    '<div style="margin-top:10px; font-weight:700;">4.</div>' +
     groupsHtml +
   '</div>';
 }
@@ -1201,7 +1197,7 @@ function submitMassMove() {
     const report = buildMassMoveReport(rowsForTransfer, sourceObject, destinationObject);
     document.getElementById('massMoveMessage').innerHTML =
       '<div class="ok">' + escapeHtml(msg) + '</div>' +
-      '<div style="margin-top:10px; font-weight:600;">Отчет для скриншота</div>' +
+      '<div style="margin-top:10px; font-weight:700; font-size:16px;">Что переместили</div>' +
       renderTransferReportBlocks(report);
 
     massMoveSelected = [];
