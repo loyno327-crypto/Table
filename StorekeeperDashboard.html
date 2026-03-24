@@ -1108,19 +1108,100 @@ function renderMassMoveSelected() {
 function setMassMoveQty(idx, value){ massMoveSelected[idx].qtyToMove = Number(value); }
 function removeMassMoveRow(idx){ massMoveSelected.splice(idx,1); renderMassMoveAvailable(); }
 function clearMassMoveSelection(){ massMoveSelected=[]; renderMassMoveAvailable(); document.getElementById('massMoveMessage').innerHTML=''; }
+function getMassMoveObjectLetter(objectName) {
+  const value = String(objectName || '').trim();
+  if (!value) return 'О';
+
+  const knownObjects = Array.isArray(initData.objects) ? initData.objects : [];
+  const isKnown = knownObjects.some(function (x) { return normalizeText(x) === normalizeText(value); });
+  if (!isKnown) return 'О';
+
+  const norm = normalizeText(value);
+  if (norm.indexOf('основ') !== -1 && norm.indexOf('склад') !== -1) return 'О';
+
+  return 'С';
+}
+function buildMassMoveReport(rows, sourceObject, destinationObject) {
+  const hashtag = '#Перемещение' + getMassMoveObjectLetter(sourceObject) + getMassMoveObjectLetter(destinationObject);
+
+  const grouped = {};
+  (rows || []).forEach(function (row) {
+    const type = String(row.type || 'Без типа').trim() || 'Без типа';
+    if (!grouped[type]) grouped[type] = [];
+    grouped[type].push({
+      category: String(row.category || 'Без категории').trim() || 'Без категории',
+      name: String(row.name || '').trim(),
+      qty: Number(row.qty) || 0
+    });
+  });
+
+  const lines = [
+    '1. ' + hashtag,
+    '2.',
+    '3.',
+    '4.'
+  ];
+
+  const typeNames = Object.keys(grouped).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+  typeNames.forEach(function (typeName) {
+    lines.push(typeName + ':');
+
+    grouped[typeName]
+      .sort(function (a, b) {
+        return a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru');
+      })
+      .forEach(function (item) {
+        lines.push(' ' + item.category + ' | "' + item.name + '" - "' + formatQty(item.qty) + '"');
+      });
+  });
+
+  return lines.join('\n');
+}
+function copyMassMoveReport() {
+  const el = document.getElementById('massMoveReportText');
+  if (!el) return;
+
+  el.focus();
+  el.select();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(el.value).catch(function () {
+      document.execCommand('copy');
+    });
+    return;
+  }
+
+  document.execCommand('copy');
+}
 function submitMassMove() {
+  const sourceObject = document.getElementById('massMoveSource').value;
+  const destinationObject = document.getElementById('massMoveDestination').value;
+  const rowsForTransfer = massMoveSelected.map(r => ({
+    article: r.article,
+    qty: Number(r.qtyToMove || r.qty),
+    objectName: r.objectName,
+    name: r.name,
+    type: r.type,
+    category: r.category
+  }));
+
   google.script.run.withSuccessHandler(function(msg){
-    document.getElementById('massMoveMessage').innerHTML = '<div class="ok">' + escapeHtml(msg) + '</div>';
+    const report = buildMassMoveReport(rowsForTransfer, sourceObject, destinationObject);
+    document.getElementById('massMoveMessage').innerHTML =
+      '<div class="ok">' + escapeHtml(msg) + '</div>' +
+      '<div style="margin-top:10px; font-weight:600;">Отчет для мессенджера</div>' +
+      '<textarea id="massMoveReportText" readonly style="width:100%; min-height:220px; margin-top:8px;">' + escapeHtml(report) + '</textarea>' +
+      '<div style="margin-top:8px;"><button class="btn btn-secondary" onclick="copyMassMoveReport()">Копировать отчет</button></div>';
+
     massMoveSelected = [];
     refreshAllStorekeeperData();
   }).withFailureHandler(function(err){
     document.getElementById('massMoveMessage').innerHTML = '<div class="danger">' + escapeHtml(err.message || err) + '</div>';
   }).saveStorekeeperMassTransfer({
-    sourceObject: document.getElementById('massMoveSource').value,
-    destinationObject: document.getElementById('massMoveDestination').value,
+    sourceObject: sourceObject,
+    destinationObject: destinationObject,
     basis: document.getElementById('massMoveBasis').value.trim(),
     newEmployee: document.getElementById('massMoveEmployee').value,
-    rows: massMoveSelected.map(r => ({ article:r.article, qty:Number(r.qtyToMove || r.qty), objectName:r.objectName, name:r.name, type:r.type, category:r.category }))
+    rows: rowsForTransfer
   });
 }
 
