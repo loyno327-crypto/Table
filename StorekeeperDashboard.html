@@ -1162,17 +1162,32 @@ function buildMassMoveReport(rows, sourceObject, destinationObject) {
 }
 function renderTransferReportBlocks(model) {
   const groupsHtml = (model.groups || []).map(function (group) {
-    const itemsHtml = (group.items || []).map(function (item) {
-      return '<div style="display:grid; grid-template-columns: 170px 1fr 95px; gap:6px; margin-top:6px;">' +
-        '<div style="background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.category) + '</div>' +
-        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.name) + '</div>' +
-        '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; text-align:left; white-space:nowrap; font-size:13px; line-height:1.25;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+    const byCategory = {};
+    (group.items || []).forEach(function (item) {
+      const categoryName = String(item.category || 'Без категории').trim() || 'Без категории';
+      if (!byCategory[categoryName]) byCategory[categoryName] = [];
+      byCategory[categoryName].push(item);
+    });
+
+    const categoryHtml = Object.keys(byCategory).sort(function (a, b) {
+      return a.localeCompare(b, 'ru');
+    }).map(function (categoryName) {
+      const rowsHtml = byCategory[categoryName].map(function (item) {
+        return '<div style="display:grid; grid-template-columns: 1fr 110px; gap:8px; margin-top:6px;">' +
+          '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:8px 10px; font-size:16px; line-height:1.3;">' + escapeHtml(item.name) + '</div>' +
+          '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:8px 10px; text-align:left; white-space:nowrap; font-size:16px; line-height:1.3; font-weight:600;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div style="margin-top:8px; margin-left:14px;">' +
+        '<div style="display:inline-block; background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 10px; font-size:18px; font-weight:700; line-height:1.25;">' + escapeHtml(categoryName) + '</div>' +
+        rowsHtml +
       '</div>';
     }).join('');
 
     return '<div style="margin-top:10px;">' +
-      '<div style="font-weight:700; margin-bottom:4px; font-size:20px; line-height:1.2;">' + escapeHtml(group.type) + '</div>' +
-      itemsHtml +
+      '<div style="font-weight:700; margin-bottom:6px; font-size:28px; line-height:1.2;">' + escapeHtml(group.type) + '</div>' +
+      categoryHtml +
     '</div>';
   }).join('');
 
