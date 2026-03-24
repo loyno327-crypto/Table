@@ -384,6 +384,7 @@
         <button class="btn btn-secondary" onclick="printInventorySheet()">Распечатать</button>
         <button class="btn btn-primary" onclick="submitInventory()">Провести</button>
       </div>
+      <div id="inventoryReport" style="margin-top:12px;"></div>
     </div>
 
     <!-- REQUEST -->
@@ -940,6 +941,80 @@
       }, 250);
     }
 
+    function getInventoryMoveObjectLetter(objectName) {
+      const value = String(objectName || '').trim();
+      if (!value) return 'О';
+
+      const isKnown = (objects || []).some(function (x) {
+        return String(x || '').trim().toLowerCase() === value.toLowerCase();
+      });
+      if (!isKnown) return 'О';
+
+      const norm = value.toLowerCase();
+      if (norm.indexOf('основ') !== -1 && norm.indexOf('склад') !== -1) return 'О';
+
+      return 'С';
+    }
+
+    function buildInventoryTransferReport(objectName, transferRows) {
+      const grouped = {};
+      (transferRows || []).forEach(function (row) {
+        const type = String(row.type || 'Без типа').trim() || 'Без типа';
+        if (!grouped[type]) grouped[type] = [];
+
+        grouped[type].push({
+          category: String(row.category || 'Без категории').trim() || 'Без категории',
+          name: String(row.name || '').trim(),
+          qty: Number(row.changeQty) || 0
+        });
+      });
+
+      const sourceLetter = getInventoryMoveObjectLetter(objectName);
+      const destinationLetter = transferRows.length
+        ? getInventoryMoveObjectLetter(transferRows[0].destination)
+        : 'О';
+
+      const lines = [
+        '1. #Перемещение' + sourceLetter + destinationLetter,
+        '2.',
+        '3.',
+        '4.'
+      ];
+
+      const typeNames = Object.keys(grouped).sort(function (a, b) {
+        return a.localeCompare(b, 'ru');
+      });
+
+      typeNames.forEach(function (typeName) {
+        lines.push(typeName + ':');
+
+        grouped[typeName]
+          .sort(function (a, b) {
+            return a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru');
+          })
+          .forEach(function (item) {
+            lines.push(' ' + item.category + ' | "' + item.name + '" - "' + item.qty + '"');
+          });
+      });
+
+      return lines.join('\n');
+    }
+
+    function copyInventoryTransferReport() {
+      const el = document.getElementById('inventoryReportText');
+      if (!el) return;
+
+      el.focus();
+      el.select();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(el.value).catch(function () {
+          document.execCommand('copy');
+        });
+        return;
+      }
+      document.execCommand('copy');
+    }
+
     function submitInventory() {
       const objectName = document.getElementById('objectSelect').value;
 
@@ -956,6 +1031,7 @@
       });
 
       const rows = collectRows();
+      const transferRows = rows.filter(function (row) { return row.action === 'Перемещение'; });
 
       if (!rows.length) {
         alert('Нет строк для проведения.');
@@ -967,10 +1043,22 @@
         return;
       }
 
+      document.getElementById('inventoryReport').innerHTML = '';
+
       google.script.run
         .withSuccessHandler(function (msg) {
-          alert(msg);
-          google.script.host.close();
+          if (!transferRows.length) {
+            alert(msg);
+            google.script.host.close();
+            return;
+          }
+
+          const report = buildInventoryTransferReport(objectName, transferRows);
+          document.getElementById('inventoryReport').innerHTML =
+            '<div class="ok">' + escapeHtml(msg) + '</div>' +
+            '<div style="margin-top:10px; font-weight:600;">Отчет по перемещению для мессенджера</div>' +
+            '<textarea id="inventoryReportText" readonly style="width:100%; min-height:220px; margin-top:8px;">' + escapeHtml(report) + '</textarea>' +
+            '<div style="margin-top:8px;"><button class="btn btn-secondary" onclick="copyInventoryTransferReport()">Копировать отчет</button></div>';
         })
         .withFailureHandler(function (err) {
           alert(err.message || err);
