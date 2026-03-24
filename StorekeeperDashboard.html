@@ -894,30 +894,42 @@ function getRespFilters(prefix) {
     employee: document.getElementById(prefix + 'Employee') ? document.getElementById(prefix + 'Employee').value : ''
   };
 }
-function currentRowsFiltered(filters, mode) {
+function getCurrentResponsibilityLookup() {
   const respMap = {};
+  const legacyMap = {};
+
   (initData.currentResponsibilities || []).forEach(function (x) {
-    respMap[normalizeText((x.article || '') + '||' + (x.objectName || ''))] = x;
+    const articleKey = normalizeText(x.article || '');
+    const objectKey = normalizeText((x.article || '') + '||' + (x.objectName || ''));
+    respMap[objectKey] = x;
+    if (!legacyMap[articleKey]) legacyMap[articleKey] = x;
   });
 
-  let rows = (initData.balances || [])
-    .filter(function (r) { return Number(r.qty) > 0; })
-    .map(function (r) {
-      const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
-      return {
-        objectName: r.objectName,
-        article: r.article,
-        name: r.name,
-        type: r.type,
-        category: r.category,
-        qty: Number(r.qty) || 0,
-        unit: r.unit || '',
-        employee: current ? current.employee : ''
-      };
-    });
+  return {
+    byObject: respMap,
+    byArticle: legacyMap
+  };
+}
+function getResponsibilityForRow(row, lookup) {
+  const responsibilityLookup = lookup || getCurrentResponsibilityLookup();
+  return responsibilityLookup.byObject[normalizeText((row.article || '') + '||' + (row.objectName || ''))] ||
+    responsibilityLookup.byArticle[normalizeText(row.article || '')] ||
+    null;
+}
+function getAssignedRowsFiltered(filters) {
+  let rows = (initData.currentResponsibilities || []).map(function (r) {
+    return {
+      objectName: r.objectName || '',
+      article: r.article || '',
+      name: r.name || '',
+      type: r.type || '',
+      category: r.category || '',
+      qty: Number(r.qty) || 0,
+      unit: r.unit || '',
+      employee: r.employee || ''
+    };
+  });
 
-  if (mode === 'available') rows = rows.filter(r => !r.employee);
-  if (mode === 'assigned') rows = rows.filter(r => !!r.employee);
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
   if (filters.employee) rows = rows.filter(r => r.employee === filters.employee);
@@ -930,9 +942,40 @@ function currentRowsFiltered(filters, mode) {
   rows.sort((a,b)=> String(a.objectName).localeCompare(String(b.objectName),'ru') || String(a.name).localeCompare(String(b.name),'ru'));
   return rows;
 }
+function getAvailableRowsFiltered(filters) {
+  const responsibilityLookup = getCurrentResponsibilityLookup();
+
+  let rows = (initData.balances || [])
+    .filter(function (r) { return Number(r.qty) > 0; })
+    .map(function (r) {
+      const current = getResponsibilityForRow(r, responsibilityLookup);
+      return {
+        objectName: r.objectName || '',
+        article: r.article || '',
+        name: r.name || '',
+        type: r.type || '',
+        category: r.category || '',
+        qty: Number(r.qty) || 0,
+        unit: r.unit || '',
+        employee: current ? current.employee : ''
+      };
+    })
+    .filter(function (r) { return !r.employee; });
+
+  if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
+  if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
+
+  const q = normalizeText(filters.query || '');
+  if (q) {
+    rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName].join(' ')).indexOf(q) !== -1);
+  }
+
+  rows.sort((a,b)=> String(a.objectName).localeCompare(String(b.objectName),'ru') || String(a.name).localeCompare(String(b.name),'ru'));
+  return rows;
+}
 function renderCurrentResponsibilityTable() {
   const body = document.getElementById('respCurrentBody');
-  const rows = currentRowsFiltered(getRespFilters('respCurrent'), 'assigned');
+  const rows = getAssignedRowsFiltered(getRespFilters('respCurrent'));
   body.innerHTML = rows.length ? rows.map(r => '<tr><td>' + escapeHtml(r.employee) + '</td><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.article) + '</td><td>' + escapeHtml(r.name) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>').join('') : '<tr><td colspan="7" class="muted">Нет данных</td></tr>';
 }
 function rowIdentity(row){ return normalizeText(row.objectName) + '||' + normalizeText(row.article); }
@@ -944,11 +987,11 @@ function toggleSelected(listName, row) {
   else list.push(Object.assign({}, row, { qtyToMove: row.qty }));
 }
 function renderAssignAvailableTable() {
-  const rows = currentRowsFiltered(getRespFilters('respAssign'), 'available');
+  const rows = getAvailableRowsFiltered(getRespFilters('respAssign'));
   const body = document.getElementById('respAssignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respAssignSelected.find(x => rowIdentity(x) === rowIdentity(r));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectAssignRow(' + JSON.stringify(r).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>';
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectAssignRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td></tr>`;
   }).join('') : '<tr><td colspan="5" class="muted">Нет данных</td></tr>';
   renderAssignSelectedTable();
 }
@@ -980,11 +1023,11 @@ function getReassignFilters() {
   };
 }
 function renderReassignAvailableTable() {
-  const rows = currentRowsFiltered(getReassignFilters(), 'assigned');
+  const rows = getAssignedRowsFiltered(getReassignFilters());
   const body = document.getElementById('respReassignAvailableBody');
   body.innerHTML = rows.length ? rows.map(r => {
     const sel = respReassignSelected.find(x => rowIdentity(x) === rowIdentity(r));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectReassignRow(' + JSON.stringify(r).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.employee) + '</td><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td></tr>';
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectReassignRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.employee)}</td><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td></tr>`;
   }).join('') : '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
   renderReassignSelectedTable();
 }
@@ -1017,37 +1060,36 @@ function renderMassMoveAvailable() {
     query: document.getElementById('massMoveSearch').value
   };
 
-  const respMap = {};
-  (initData.currentResponsibilities || []).forEach(function (x) {
-    respMap[normalizeText((x.article || '') + '||' + (x.objectName || ''))] = x;
-  });
+  const responsibilityLookup = getCurrentResponsibilityLookup();
 
-  let rows = (initData.balances || []).filter(r => Number(r.qty) > 0);
+  let rows = (initData.balances || [])
+    .filter(r => Number(r.qty) > 0)
+    .map(function (r) {
+      const current = getResponsibilityForRow(r, responsibilityLookup);
+      return {
+        objectName: r.objectName || '',
+        article: r.article || '',
+        name: r.name || '',
+        type: r.type || '',
+        category: r.category || '',
+        unit: r.unit || '',
+        qty: Number(r.qty) || 0,
+        employee: current ? current.employee : ''
+      };
+    });
+
   if (filters.objectName) rows = rows.filter(r => r.objectName === filters.objectName);
   if (filters.typeName) rows = rows.filter(r => r.type === filters.typeName);
-  if (filters.employee) rows = rows.filter(r => {
-    const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
-    return current && current.employee === filters.employee;
-  });
+  if (filters.employee) rows = rows.filter(r => r.employee === filters.employee);
 
   const q = normalizeText(filters.query || '');
-  if (q) rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName].join(' ')).indexOf(q) !== -1);
+  if (q) rows = rows.filter(r => normalizeText([r.article, r.name, r.type, r.category, r.objectName, r.employee].join(' ')).indexOf(q) !== -1);
 
   rows.sort((a,b)=> String(a.name).localeCompare(String(b.name),'ru'));
 
   body.innerHTML = rows.length ? rows.map(r => {
-    const current = respMap[normalizeText((r.article || '') + '||' + (r.objectName || ''))];
-    const row = {
-      objectName:r.objectName,
-      article:r.article,
-      name:r.name,
-      type:r.type,
-      category:r.category,
-      qty:Number(r.qty)||0,
-      employee: current ? current.employee : ''
-    };
-    const sel = massMoveSelected.find(x => rowIdentity(x) === rowIdentity(row));
-    return '<tr class="clickable ' + (sel ? 'selected' : '') + '" onclick=\'selectMassMoveRow(' + JSON.stringify(row).replace(/'/g,"&#39;") + ')\'><td>' + escapeHtml(r.objectName) + '</td><td>' + escapeHtml(r.type) + '</td><td>' + escapeHtml(r.category) + '</td><td>' + escapeHtml(r.name) + '</td><td class="number">' + formatQty(r.qty) + '</td><td>' + escapeHtml(current ? current.employee : '—') + '</td></tr>';
+    const sel = massMoveSelected.find(x => rowIdentity(x) === rowIdentity(r));
+    return `<tr class="clickable ${sel ? 'selected' : ''}" onclick='selectMassMoveRow(${JSON.stringify(r).replace(/'/g, '&#39;')})'><td>${escapeHtml(r.objectName)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.name)}</td><td class="number">${formatQty(r.qty)}</td><td>${escapeHtml(r.employee || '—')}</td></tr>`;
   }).join('') : '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
 
   renderMassMoveSelected();
@@ -1067,19 +1109,122 @@ function renderMassMoveSelected() {
 function setMassMoveQty(idx, value){ massMoveSelected[idx].qtyToMove = Number(value); }
 function removeMassMoveRow(idx){ massMoveSelected.splice(idx,1); renderMassMoveAvailable(); }
 function clearMassMoveSelection(){ massMoveSelected=[]; renderMassMoveAvailable(); document.getElementById('massMoveMessage').innerHTML=''; }
+function getMassMoveObjectLetter(objectName) {
+  const value = String(objectName || '').trim();
+  if (!value) return 'О';
+
+  const knownObjects = Array.isArray(initData.objects) ? initData.objects : [];
+  const isKnown = knownObjects.some(function (x) { return normalizeText(x) === normalizeText(value); });
+  if (!isKnown) return 'О';
+
+  const norm = normalizeText(value);
+  if (norm.indexOf('основ') !== -1 && norm.indexOf('склад') !== -1) return 'О';
+
+  return 'С';
+}
+function buildMassMoveReport(rows, sourceObject, destinationObject) {
+  const model = {
+    hashtag: '#Перемещение' + getMassMoveObjectLetter(sourceObject) + getMassMoveObjectLetter(destinationObject),
+    groups: []
+  };
+
+  const grouped = {};
+  (rows || []).forEach(function (row) {
+    const type = String(row.type || 'Без типа').trim() || 'Без типа';
+    if (!grouped[type]) grouped[type] = [];
+    grouped[type].push({
+      category: String(row.category || 'Без категории').trim() || 'Без категории',
+      name: String(row.name || '').trim(),
+      qty: Number(row.qty) || 0,
+      unit: String(row.unit || '').trim()
+    });
+  });
+
+  const typeNames = Object.keys(grouped).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+  typeNames.forEach(function (typeName) {
+    const items = grouped[typeName]
+      .sort(function (a, b) {
+        return a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru');
+      })
+      .map(function (item) {
+        return {
+          category: item.category,
+          name: item.name,
+          qty: formatQty(item.qty),
+          unit: item.unit
+        };
+      });
+
+    model.groups.push({ type: typeName, items: items });
+  });
+
+  return model;
+}
+function renderTransferReportBlocks(model) {
+  const groupsHtml = (model.groups || []).map(function (group) {
+    const byCategory = {};
+    (group.items || []).forEach(function (item) {
+      const categoryName = String(item.category || 'Без категории').trim() || 'Без категории';
+      if (!byCategory[categoryName]) byCategory[categoryName] = [];
+      byCategory[categoryName].push(item);
+    });
+
+    const categoryHtml = Object.keys(byCategory).sort(function (a, b) {
+      return a.localeCompare(b, 'ru');
+    }).map(function (categoryName) {
+      const rowsHtml = byCategory[categoryName].map(function (item) {
+        return '<div style="display:grid; grid-template-columns: 1fr 90px; gap:8px; margin-top:4px; padding:3px 0; border-bottom:1px solid #d8e0ef;">' +
+          '<div style="padding:2px 0; font-size:28px; line-height:1.2;">' + escapeHtml(item.name) + '</div>' +
+          '<div style="padding:2px 0; text-align:right; white-space:nowrap; font-size:28px; line-height:1.2; font-weight:600;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+        '</div>';
+      }).join('');
+
+      return '<div style="margin-top:8px; margin-left:14px;">' +
+        '<div style="font-weight:700; margin-bottom:4px; font-size:32px; line-height:1.2;">' + escapeHtml(categoryName) + '</div>' +
+        rowsHtml +
+      '</div>';
+    }).join('');
+
+    return '<div style="margin-top:10px;">' +
+      '<div style="font-weight:700; margin-bottom:6px; font-size:32px; line-height:1.2;">' + escapeHtml(group.type) + '</div>' +
+      categoryHtml +
+    '</div>';
+  }).join('');
+
+  return '<div style="margin-top:10px; border:1px solid #d8e0ef; border-radius:10px; padding:12px; background:#f8fbff;">' +
+    groupsHtml +
+  '</div>';
+}
 function submitMassMove() {
+  const sourceObject = document.getElementById('massMoveSource').value;
+  const destinationObject = document.getElementById('massMoveDestination').value;
+  const rowsForTransfer = massMoveSelected.map(r => ({
+    article: r.article,
+    qty: Number(r.qtyToMove || r.qty),
+    objectName: r.objectName,
+    name: r.name,
+    type: r.type,
+    category: r.category,
+    unit: r.unit
+  }));
+
   google.script.run.withSuccessHandler(function(msg){
-    document.getElementById('massMoveMessage').innerHTML = '<div class="ok">' + escapeHtml(msg) + '</div>';
+    const report = buildMassMoveReport(rowsForTransfer, sourceObject, destinationObject);
+    document.getElementById('massMoveMessage').innerHTML =
+      '<div class="ok">' + escapeHtml(msg) + '</div>' +
+      '<div style="margin-top:10px; font-weight:700; font-size:16px;">Что переместили</div>' +
+      renderTransferReportBlocks(report);
+
     massMoveSelected = [];
     refreshAllStorekeeperData();
   }).withFailureHandler(function(err){
     document.getElementById('massMoveMessage').innerHTML = '<div class="danger">' + escapeHtml(err.message || err) + '</div>';
   }).saveStorekeeperMassTransfer({
-    sourceObject: document.getElementById('massMoveSource').value,
-    destinationObject: document.getElementById('massMoveDestination').value,
+    sourceObject: sourceObject,
+    destinationObject: destinationObject,
     basis: document.getElementById('massMoveBasis').value.trim(),
     newEmployee: document.getElementById('massMoveEmployee').value,
-    rows: massMoveSelected.map(r => ({ article:r.article, qty:Number(r.qtyToMove || r.qty), objectName:r.objectName, name:r.name, type:r.type, category:r.category }))
+    rows: rowsForTransfer
   });
 }
 
