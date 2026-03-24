@@ -384,6 +384,7 @@
         <button class="btn btn-secondary" onclick="printInventorySheet()">Распечатать</button>
         <button class="btn btn-primary" onclick="submitInventory()">Провести</button>
       </div>
+      <div id="inventoryReport" style="margin-top:12px;"></div>
     </div>
 
     <!-- REQUEST -->
@@ -940,6 +941,93 @@
       }, 250);
     }
 
+    function getInventoryMoveObjectLetter(objectName) {
+      const value = String(objectName || '').trim();
+      if (!value) return 'О';
+
+      const isKnown = (objects || []).some(function (x) {
+        return String(x || '').trim().toLowerCase() === value.toLowerCase();
+      });
+      if (!isKnown) return 'О';
+
+      const norm = value.toLowerCase();
+      if (norm.indexOf('основ') !== -1 && norm.indexOf('склад') !== -1) return 'О';
+
+      return 'С';
+    }
+
+    function buildInventoryTransferReport(objectName, transferRows) {
+      const model = {
+        hashtag: '',
+        groups: []
+      };
+      const grouped = {};
+      (transferRows || []).forEach(function (row) {
+        const type = String(row.type || 'Без типа').trim() || 'Без типа';
+        if (!grouped[type]) grouped[type] = [];
+
+        grouped[type].push({
+          category: String(row.category || 'Без категории').trim() || 'Без категории',
+          name: String(row.name || '').trim(),
+          qty: Number(row.changeQty) || 0,
+          unit: String(row.unit || '').trim()
+        });
+      });
+
+      const sourceLetter = getInventoryMoveObjectLetter(objectName);
+      const destinationLetter = transferRows.length
+        ? getInventoryMoveObjectLetter(transferRows[0].destination)
+        : 'О';
+      model.hashtag = '#Перемещение' + sourceLetter + destinationLetter;
+
+      const typeNames = Object.keys(grouped).sort(function (a, b) {
+        return a.localeCompare(b, 'ru');
+      });
+
+      typeNames.forEach(function (typeName) {
+        const items = grouped[typeName]
+          .sort(function (a, b) {
+            return a.category.localeCompare(b.category, 'ru') || a.name.localeCompare(b.name, 'ru');
+          })
+          .map(function (item) {
+            return {
+              category: item.category,
+              name: item.name,
+              qty: String(item.qty),
+              unit: item.unit
+            };
+          });
+
+        model.groups.push({
+          type: typeName,
+          items: items
+        });
+      });
+
+      return model;
+    }
+
+    function renderInventoryTransferBlocks(model) {
+      const groupsHtml = (model.groups || []).map(function (group) {
+        const itemsHtml = (group.items || []).map(function (item) {
+          return '<div style="display:grid; grid-template-columns: 170px 1fr 95px; gap:6px; margin-top:6px;">' +
+            '<div style="background:#eef3fb; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.category) + '</div>' +
+            '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; font-size:13px; line-height:1.25;">' + escapeHtml(item.name) + '</div>' +
+            '<div style="background:#fff; border:1px solid #d8e0ef; border-radius:8px; padding:6px 8px; text-align:left; white-space:nowrap; font-size:13px; line-height:1.25;">' + escapeHtml(item.qty + (item.unit ? ' ' + item.unit : '')) + '</div>' +
+          '</div>';
+        }).join('');
+
+        return '<div style="margin-top:10px;">' +
+          '<div style="font-weight:700; margin-bottom:4px; font-size:20px; line-height:1.2;">' + escapeHtml(group.type) + '</div>' +
+          itemsHtml +
+        '</div>';
+      }).join('');
+
+      return '<div style="margin-top:10px; border:1px solid #d8e0ef; border-radius:10px; padding:12px; background:#f8fbff;">' +
+        groupsHtml +
+      '</div>';
+    }
+
     function submitInventory() {
       const objectName = document.getElementById('objectSelect').value;
 
@@ -956,6 +1044,7 @@
       });
 
       const rows = collectRows();
+      const transferRows = rows.filter(function (row) { return row.action === 'Перемещение'; });
 
       if (!rows.length) {
         alert('Нет строк для проведения.');
@@ -967,10 +1056,21 @@
         return;
       }
 
+      document.getElementById('inventoryReport').innerHTML = '';
+
       google.script.run
         .withSuccessHandler(function (msg) {
-          alert(msg);
-          google.script.host.close();
+          if (!transferRows.length) {
+            alert(msg);
+            google.script.host.close();
+            return;
+          }
+
+          const report = buildInventoryTransferReport(objectName, transferRows);
+          document.getElementById('inventoryReport').innerHTML =
+            '<div class="ok">' + escapeHtml(msg) + '</div>' +
+            '<div style="margin-top:10px; font-weight:700; font-size:16px;">Что переместили</div>' +
+            renderInventoryTransferBlocks(report);
         })
         .withFailureHandler(function (err) {
           alert(err.message || err);
