@@ -1,14 +1,292 @@
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Склад')
-    .addItem('Меню', 'showMainMenuPanel')
-    .addItem('1. Обновить всё', 'refreshAll')
-    .addSeparator()
-    .addItem('2. Инвентаризация', 'showInventoryForm')
-    .addItem('3. Поиск товара', 'showSearchForm')
-    .addItem('4. Дашборд кладовщика', 'showStorekeeperDashboard')
-    .addItem('5. Дашборд руководителя', 'showManagementDashboard')
-    .addToUi();
+  ensureAccessControlSheets_();
+
+  const ui = SpreadsheetApp.getUi();
+  const menu = ui.createMenu('Склад');
+  const access = getCurrentUserAccess_();
+
+  menu.addItem('Меню', 'showMainMenuPanel');
+  if (access.permissions.refreshAll) menu.addItem('1. Обновить всё', 'refreshAll');
+  menu.addSeparator();
+  if (access.permissions.inventory) menu.addItem('2. Инвентаризация', 'showInventoryForm');
+  if (access.permissions.search) menu.addItem('3. Поиск товара', 'showSearchForm');
+  if (access.permissions.storekeeperDashboard) menu.addItem('4. Дашборд кладовщика', 'showStorekeeperDashboard');
+  if (access.permissions.managementDashboard) menu.addItem('5. Дашборд руководителя', 'showManagementDashboard');
+  if (access.permissions.manageAccess) {
+    menu.addSeparator();
+    menu.addItem('6. Управление доступом', 'showAccessAdminPanel');
+    menu.addItem('7. Защитить листы', 'syncSheetProtections');
+  }
+  menu.addToUi();
+}
+const ACCESS_ROLE_SHEET = 'Роли доступа';
+const ACCESS_USERS_SHEET = 'Пользователи и роли';
+const ACCESS_PERMISSION_FIELDS = [
+  'menu',
+  'inventory',
+  'search',
+  'storekeeperDashboard',
+  'managementDashboard',
+  'manageAccess',
+  'refreshAll'
+];
+const ACCESS_PERMISSION_LABELS = {
+  menu: 'Меню',
+  inventory: 'Инвентаризация',
+  search: 'Поиск',
+  storekeeperDashboard: 'Дашборд кладовщика',
+  managementDashboard: 'Дашборд руководителя',
+  manageAccess: 'Управление доступом',
+  refreshAll: 'Обновить всё'
+};
+
+function normalizeEmail_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function ensureAccessControlSheets_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  let roleSheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
+  if (!roleSheet) roleSheet = ss.insertSheet(ACCESS_ROLE_SHEET);
+  if (roleSheet.getLastRow() === 0) {
+    const headers = [['Роль', 'Меню', 'Инвентаризация', 'Поиск', 'Дашборд кладовщика', 'Дашборд руководителя', 'Управление доступом', 'Обновить всё', 'Комментарий']];
+    const rows = [
+      ['Руководитель', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Полный доступ'],
+      ['Прораб', 'Да', 'Да', 'Да', 'Нет', 'Нет', 'Нет', 'Нет', 'Инвентаризация и поиск'],
+      ['Инженер по закупкам', 'Да', 'Нет', 'Да', 'Да', 'Нет', 'Нет', 'Нет', 'Поиск и дашборд кладовщика'],
+      ['Инженер по снабжению', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Да', 'Полный доступ']
+    ];
+    roleSheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
+    roleSheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    formatHeader_(roleSheet, 1, 1, 1, headers[0].length);
+    roleSheet.setFrozenRows(1);
+    autoResize_(roleSheet, 1, headers[0].length);
+  }
+
+  let userSheet = ss.getSheetByName(ACCESS_USERS_SHEET);
+  if (!userSheet) userSheet = ss.insertSheet(ACCESS_USERS_SHEET);
+  if (userSheet.getLastRow() === 0) {
+    const headers = [['Email', 'Роль', 'Активен', 'Комментарий']];
+    userSheet.getRange(1, 1, 1, headers[0].length).setValues(headers);
+    formatHeader_(userSheet, 1, 1, 1, headers[0].length);
+    userSheet.setFrozenRows(1);
+    const currentEmail = getCurrentUserEmail_();
+    if (currentEmail) {
+      userSheet.getRange(2, 1, 1, 4).setValues([[currentEmail, 'Инженер по снабжению', 'Да', 'Добавлен автоматически как первый администратор']]);
+    }
+    autoResize_(userSheet, 1, headers[0].length);
+  }
+}
+
+function getCurrentUserEmail_() {
+  return normalizeEmail_(Session.getActiveUser().getEmail() || Session.getEffectiveUser().getEmail());
+}
+
+function toBoolAccess_(value) {
+  const v = normalizeText_(String(value || ''));
+  return ['да', 'true', '1', 'yes', 'y'].indexOf(v) !== -1;
+}
+
+function getAccessRolesMap_() {
+  ensureAccessControlSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ACCESS_ROLE_SHEET);
+  const lastRow = sheet.getLastRow();
+  const map = {};
+  if (lastRow < 2) return map;
+  const data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
+  data.forEach(function (r) {
+    const role = String(r[0] || '').trim();
+    if (!role) return;
+    map[role] = {
+      role: role,
+      permissions: {
+        menu: toBoolAccess_(r[1]),
+        inventory: toBoolAccess_(r[2]),
+        search: toBoolAccess_(r[3]),
+        storekeeperDashboard: toBoolAccess_(r[4]),
+        managementDashboard: toBoolAccess_(r[5]),
+        manageAccess: toBoolAccess_(r[6]),
+        refreshAll: toBoolAccess_(r[7])
+      },
+      comment: String(r[8] || '').trim()
+    };
+  });
+  return map;
+}
+
+function getUserRoleEntries_() {
+  ensureAccessControlSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ACCESS_USERS_SHEET);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 4).getValues().map(function (r, idx) {
+    return {
+      sheetRow: idx + 2,
+      email: normalizeEmail_(r[0]),
+      role: String(r[1] || '').trim(),
+      active: toBoolAccess_(r[2]),
+      comment: String(r[3] || '').trim()
+    };
+  }).filter(function (row) { return !!row.email; });
+}
+
+function getCurrentUserAccess_() {
+  const email = getCurrentUserEmail_();
+  const rolesMap = getAccessRolesMap_();
+  const users = getUserRoleEntries_();
+  const userRow = users.find(function (row) { return row.email === email && row.active; }) || null;
+  const roleName = userRow ? userRow.role : '';
+  const role = rolesMap[roleName] || null;
+  const permissions = {
+    menu: false,
+    inventory: false,
+    search: false,
+    storekeeperDashboard: false,
+    managementDashboard: false,
+    manageAccess: false,
+    refreshAll: false
+  };
+  if (role && role.permissions) {
+    ACCESS_PERMISSION_FIELDS.forEach(function (key) { permissions[key] = !!role.permissions[key]; });
+  }
+  return {
+    email: email,
+    role: roleName,
+    roleComment: role ? role.comment : '',
+    permissions: permissions,
+    hasAnyAccess: ACCESS_PERMISSION_FIELDS.some(function (key) { return !!permissions[key]; })
+  };
+}
+
+function requirePermission_(permissionKey, actionName) {
+  const access = getCurrentUserAccess_();
+  if (access.permissions[permissionKey]) return access;
+  throw new Error('Нет доступа: ' + actionName + '. Текущая роль: ' + (access.role || 'не назначена') + '.');
+}
+
+function getCurrentUserRoleInfo() {
+  const access = getCurrentUserAccess_();
+  return {
+    email: access.email,
+    role: access.role,
+    roleComment: access.roleComment,
+    permissions: access.permissions,
+    permissionLabels: ACCESS_PERMISSION_LABELS,
+    hasAnyAccess: access.hasAnyAccess
+  };
+}
+
+function getAccessControlData() {
+  requirePermission_('manageAccess', 'управление доступом');
+  const rolesMap = getAccessRolesMap_();
+  const users = getUserRoleEntries_();
+  const roles = Object.keys(rolesMap).map(function (name) {
+    return {
+      role: name,
+      permissions: rolesMap[name].permissions,
+      comment: rolesMap[name].comment
+    };
+  }).sort(function (a, b) { return a.role.localeCompare(b.role, 'ru'); });
+
+  return {
+    currentUser: getCurrentUserRoleInfo(),
+    roles: roles,
+    users: users
+  };
+}
+
+function saveAccessControlData(payload) {
+  requirePermission_('manageAccess', 'управление доступом');
+  ensureAccessControlSheets_();
+
+  const users = Array.isArray(payload && payload.users) ? payload.users : [];
+  const rolesMap = getAccessRolesMap_();
+  const currentEmail = getCurrentUserEmail_();
+  const prepared = [];
+  const seen = {};
+
+  users.forEach(function (row) {
+    const email = normalizeEmail_(row.email);
+    const role = String(row.role || '').trim();
+    const active = row.active === false ? false : true;
+    const comment = String(row.comment || '').trim();
+    if (!email) return;
+    if (!rolesMap[role]) throw new Error('Неизвестная роль: ' + role + '. Сначала добавь роль в лист "' + ACCESS_ROLE_SHEET + '".');
+    if (seen[email]) throw new Error('Пользователь ' + email + ' указан несколько раз.');
+    seen[email] = true;
+    prepared.push([email, role, active ? 'Да' : 'Нет', comment]);
+  });
+
+  if (!prepared.length) throw new Error('Список пользователей пуст.');
+
+  const currentEntry = prepared.find(function (r) { return r[0] === currentEmail; });
+  if (!currentEntry) throw new Error('Нельзя удалить себе доступ. Оставь свою учетную запись в списке.');
+  if (!toBoolAccess_(currentEntry[2])) throw new Error('Нельзя отключить свою учетную запись.');
+  const currentRoleInfo = rolesMap[currentEntry[1]];
+  if (!currentRoleInfo || !currentRoleInfo.permissions.manageAccess) {
+    throw new Error('Нельзя снять у себя право управления доступом в этом действии.');
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ACCESS_USERS_SHEET);
+  sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 4).clearContent();
+  if (prepared.length) {
+    if (sheet.getMaxRows() < prepared.length + 1) {
+      sheet.insertRowsAfter(sheet.getMaxRows(), prepared.length + 1 - sheet.getMaxRows());
+    }
+    sheet.getRange(2, 1, prepared.length, 4).setValues(prepared);
+  }
+  autoResize_(sheet, 1, 4);
+  syncSheetProtections();
+  return 'Доступы обновлены. Пользователей: ' + prepared.length;
+}
+
+function syncSheetProtections() {
+  requirePermission_('manageAccess', 'защита листов');
+  ensureAccessControlSheets_();
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const rolesMap = getAccessRolesMap_();
+  const adminEmails = getUserRoleEntries_()
+    .filter(function (row) {
+      const roleInfo = rolesMap[row.role];
+      return row.active && roleInfo && roleInfo.permissions.manageAccess;
+    })
+    .map(function (row) { return row.email; });
+
+  if (!adminEmails.length) throw new Error('Нет ни одного администратора с правом управления доступом.');
+
+  ss.getSheets().forEach(function (sheet) {
+    let protection = sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET)[0];
+    if (!protection) {
+      protection = sheet.protect();
+    }
+    protection.setDescription('Автозащита: редактирование только администраторами доступа');
+    protection.setWarningOnly(false);
+    try { protection.removeEditors(protection.getEditors()); } catch (e) {}
+    try { protection.addEditors(adminEmails); } catch (e) {}
+    if (protection.canDomainEdit && protection.canDomainEdit()) {
+      protection.setDomainEdit(false);
+    }
+  });
+
+  return 'Листы защищены. Редактирование разрешено только администраторам: ' + adminEmails.join(', ');
+}
+
+function showAccessAdminPanel() {
+  requirePermission_('manageAccess', 'управление доступом');
+  const html = HtmlService.createHtmlOutputFromFile('AccessAdminPanel')
+    .setWidth(1200)
+    .setHeight(820);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Управление доступом');
+}
+
+function openQuickRefreshAll() {
+  requirePermission_('refreshAll', 'обновление данных');
+  refreshAll();
 }
 function getItemCardData(article) {
   const articleNorm = String(article || '').trim().toLowerCase();
@@ -364,15 +642,13 @@ function openQuickManagementDashboard() {
   showManagementDashboard();
 }
 
-function openQuickRefreshAll() {
-  refreshAll();
-}
 /**
  * =========================
  * UI / FORMS
  * =========================
  */
 function showManagementDashboard() {
+  requirePermission_('managementDashboard', 'дашборд руководителя');
   const html = HtmlService.createHtmlOutputFromFile('ManagementDashboard')
     .setWidth(1400)
     .setHeight(900);
@@ -380,6 +656,7 @@ function showManagementDashboard() {
 }
 
 function showInventoryForm() {
+  requirePermission_('inventory', 'инвентаризация');
   const html = HtmlService.createHtmlOutputFromFile('InventoryForm')
     .setWidth(1400)
     .setHeight(900);
@@ -387,6 +664,7 @@ function showInventoryForm() {
 }
 
 function showSearchForm() {
+  requirePermission_('search', 'поиск товара');
   const html = HtmlService.createHtmlOutputFromFile('SearchForm')
     .setWidth(1300)
     .setHeight(850);
@@ -1358,6 +1636,7 @@ function formatQty_(value) {
  */
 
 function showStorekeeperDashboard() {
+  requirePermission_('storekeeperDashboard', 'дашборд кладовщика');
   const html = HtmlService.createHtmlOutputFromFile('StorekeeperDashboard')
     .setWidth(1500)
     .setHeight(950);
