@@ -2145,16 +2145,28 @@ function applyResponsibilityReassignments_(payload) {
     }
 
     let targetRow = 0;
+    let matchedLegacyRow = false;
+    const legacyKey = getLegacyResponsibilityKey_(article);
     for (var i = 0; i < data.length; i++) {
-      if (makeResponsibilityKey_(data[i][0], data[i][1]) === key ||
-          (makeResponsibilityKey_(data[i][0], data[i][1]) === getLegacyResponsibilityKey_(article) && !String(data[i][1] || '').trim())) {
+      const rowKey = makeResponsibilityKey_(data[i][0], data[i][1]);
+      const rowObject = String(data[i][1] || '').trim();
+      if (rowKey === key) {
         targetRow = i + 2;
+        matchedLegacyRow = false;
         break;
+      }
+      if (!targetRow && rowKey === legacyKey && !rowObject) {
+        targetRow = i + 2;
+        matchedLegacyRow = true;
       }
     }
     if (!targetRow) throw new Error('Не найдена строка ответственного для ' + article + ' на объекте "' + objectName + '".');
 
-    sheet.getRange(targetRow, 2, 1, 5).setValues([[objectName, employee, assignedAt, user, comment]]);
+    if (matchedLegacyRow) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, 1, 6).setValues([[article, objectName, employee, assignedAt, user, comment]]);
+    } else {
+      sheet.getRange(targetRow, 2, 1, 5).setValues([[objectName, employee, assignedAt, user, comment]]);
+    }
     historyItems.push({
       article: article,
       name: row.name,
