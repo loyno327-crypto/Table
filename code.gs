@@ -5,6 +5,7 @@ function onOpen() {
   const menu = ui.createMenu('Склад');
   const access = getCurrentUserAccess_();
 
+  menu.addItem('Единое рабочее место', 'showUnifiedWorkspace');
   menu.addItem('Меню', 'showMainMenuPanel');
   if (access.permissions.refreshAll) menu.addItem('1. Обновить всё', 'refreshAll');
   menu.addSeparator();
@@ -622,6 +623,28 @@ function showMainMenuPanel() {
   const html = HtmlService.createHtmlOutputFromFile('QuickAccessPanel')
     .setTitle('Меню');
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+
+function showUnifiedWorkspace() {
+  const access = getCurrentUserAccess_();
+  const html = HtmlService.createHtmlOutputFromFile('UnifiedWorkspace')
+    .setWidth(1600)
+    .setHeight(900);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Единое рабочее пространство');
+}
+
+function getModuleHtmlContent(moduleName) {
+  const access = getCurrentUserAccess_();
+  const map = {
+    InventoryForm: 'inventory',
+    SearchForm: 'search',
+    StorekeeperDashboard: 'storekeeperDashboard',
+    ManagementDashboard: 'managementDashboard'
+  };
+  if (!map[moduleName]) throw new Error('Неизвестный модуль: ' + moduleName);
+  if (!access.permissions[map[moduleName]]) throw new Error('Нет доступа к модулю: ' + moduleName);
+  return HtmlService.createHtmlOutputFromFile(moduleName).getContent();
 }
 
 function showQuickAccessPanel() {

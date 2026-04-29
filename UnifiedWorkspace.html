@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    body { margin:0; font-family: Arial,sans-serif; background:#f5f7fb; color:#111827; }
+    .layout { display:grid; grid-template-columns: 260px 1fr; height:100vh; }
+    .sidebar { background:#fff; border-right:1px solid #e5e7eb; padding:14px; overflow:auto; }
+    .title { font-size:18px; font-weight:700; margin-bottom:4px; }
+    .sub { color:#6b7280; font-size:12px; margin-bottom:12px; }
+    .tab { display:block; width:100%; border:none; text-align:left; padding:10px 12px; margin-bottom:8px; border-radius:10px; background:#eef2ff; font-weight:700; cursor:pointer; }
+    .tab.active { background:#2f6fed; color:#fff; }
+    .main { padding:12px; }
+    .panel { background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.08); height:calc(100vh - 24px); overflow:hidden; }
+    iframe { width:100%; height:100%; border:none; }
+    .status { font-size:12px; color:#6b7280; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="title">Единая программа</div>
+      <div class="sub">Выберите модуль слева и работайте во вкладке</div>
+      <button class="tab" data-module="InventoryForm" onclick="openModule('InventoryForm', this)">Инвентаризация</button>
+      <button class="tab" data-module="SearchForm" onclick="openModule('SearchForm', this)">Поиск товара</button>
+      <button class="tab" data-module="StorekeeperDashboard" onclick="openModule('StorekeeperDashboard', this)">Дашборд кладовщика</button>
+      <button class="tab" data-module="ManagementDashboard" onclick="openModule('ManagementDashboard', this)">Дашборд руководителя</button>
+      <div class="status" id="status">Загрузка...</div>
+    </aside>
+    <main class="main">
+      <div class="panel"><iframe id="moduleFrame"></iframe></div>
+    </main>
+  </div>
+
+  <script>
+    function setActive(btn){document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active')); if(btn) btn.classList.add('active');}
+    function openModule(moduleName, btn){
+      setActive(btn || document.querySelector('[data-module="'+moduleName+'"]'));
+      document.getElementById('status').textContent = 'Открываем модуль...';
+      google.script.run
+        .withSuccessHandler(function(content){
+          const frame = document.getElementById('moduleFrame');
+          frame.srcdoc = content;
+          document.getElementById('status').textContent = 'Открыт: ' + (btn ? btn.textContent : moduleName);
+        })
+        .withFailureHandler(function(err){document.getElementById('status').textContent = 'Ошибка: ' + (err.message || err);})
+        .getModuleHtmlContent(moduleName);
+    }
+    openModule('InventoryForm');
+  </script>
+</body>
+</html>
